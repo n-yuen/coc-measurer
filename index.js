@@ -6,9 +6,14 @@ require('dotenv').config()
 const setup = require('./setup.json')
 
 function loadFile(name) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         fs.readFile(name, 'utf8', (err, data) => {
-            resolve(JSON.parse(data))
+            try {
+                var ret = JSON.parse(data)
+                resolve(ret)
+            } catch (e) {
+                reject(1)
+            }
         })
     })
 }
@@ -17,32 +22,28 @@ var client = clashApi({
     token: process.env.COC_API_KEY
 })
 
-client.clanCurrentWarByTag(setup.clan_tag).then(res => {
-    var endTime = res.endTime
-    var endTime_D = parseTime(endTime)
+var getEndTime = client.clanCurrentWarByTag(setup.clan_tag).then(res => {
+    return new Date(parseTime(res.endTime).valueOf() - 60000) // One minute before the end of the war
+}).catch((err) => console.log(err))
 
-    //console.log(endTime_D.valueOf())
+function initialize_war() {
+    getEndTime.then((res) => {
+        setTimeout(updateWarResults, res - Date.now())
+    })
+}
 
-    var endTime_before = new Date(endTime_D.valueOf() - 60000) // One minute before the end of the war
+function updateWarResults() {
 
-    //console.log(endTime_before.toJSON())
+}
 
-    var curTime = new Date(Date.now())
-    //console.log(curTime)
-
-    var timeRemaining = endTime_D - curTime
-    //console.log(timeRemaining)
-
-}).catch((err) => console.log("Current war data is unavailable. Please make your war log public!"))
-
-function parseTime(t) {
+function parseTime(t) {     // Dates from the CoC api come in a funny format
     return new Date(Date.UTC(
-        t.substr(0, 4),   // yr
-        t.substr(4, 2) - 1,   // mo
-        t.substr(6, 2),   // day
-        t.substr(9, 2),   // hr
-        t.substr(11, 2),  // min
-        t.substr(13, 2)   // sec
+        t.substr(0, 4),         // yr
+        t.substr(4, 2) - 1,     // mo
+        t.substr(6, 2),         // day
+        t.substr(9, 2),         // hr
+        t.substr(11, 2),        // min
+        t.substr(13, 2)         // sec
     ))
 }
 
@@ -94,7 +95,6 @@ var setupWarlog = new Promise((resolve, reject) => {
 
         var data = {}
 
-        //fs.writeFile('clan_prev.json', JSON.stringify(clan_data, null, 2), 'utf8') // Just in case you accidentally over-wrote stuff
         data.warlog = []
         data.warleague = []
 
@@ -132,24 +132,18 @@ var setupWarlog = new Promise((resolve, reject) => {
     })
 })
 
+function createIfNotExists(filename, setupPromise){
+    loadFile('./' + filename).catch((err) => {  // Attempt to load file; execute code on failure
+        console.log(`Creating file: ${filename}`)
+        setupPromise.then((res2) => {
+            fs.writeFile(filename, JSON.stringify(res2, null, 2), 'utf8')
+        })
+    })
+}
+
 function firstTimeSetup() {
-
-    loadFile('./players.json').then((res) => {
-        if (res !== '{}') {
-            setupClan.then((res2) => {
-                console.log(res2)
-                fs.writeFile('players.json', JSON.stringify(res2, null, 2), 'utf8')
-            })
-        }
-    }).catch((err) => console.log(err))
-
-    loadFile('./clan.json').then((res) => {
-        if (res !== '{}') {
-            setupWarlog.then((res2) => {
-                fs.writeFile('clan.json', JSON.stringify(res2, null, 2), 'utf8')
-            })
-        }
-    }).catch((err) => console.log(err))
+    createIfNotExists('clan.json', setupClan)
+    createIfNotExists('warlog.json', setupWarlog)
 }
 
 firstTimeSetup()
