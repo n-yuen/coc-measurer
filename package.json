@@ -1,0 +1,20 @@
+{
+  "name": "coc-measurer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "author": "n-yuen",
+  "license": "ISC",
+  "dependencies": {
+    "clash-of-clans-api": "^0.6.0",
+    "dotenv": "^8.0.0",
+    "file-system": "^2.2.2"
+  },
+  "devDependencies": {
+    "nodemon": "^1.19.1"
+  }
+}
