@@ -59,7 +59,7 @@ function getWarLeagueInfo() {
         var data = {
             season: new Date(Date.UTC(
                 res.season.substr(0, 4),
-                res.season.substr(5, 2))),
+                res.season.substr(5, 2) - 1)),
             wars: []
         }
         for (var r of res.rounds) {
