@@ -54,19 +54,24 @@ function parseTime(t) {     // Dates from the CoC api come in a funny format
 
 function getWarLeagueInfo() {
     return client.clanLeague(setup.clan_tag).then(res => {
-
+        //console.log(res)
         var promises = []
-        var data = []
+        var data = {
+            season: new Date(Date.UTC(
+                res.season.substr(0, 4),
+                res.season.substr(5, 2))),
+            wars: []
+        }
         for (var r of res.rounds) {
-            if (r.warTags[0] != '#0') {
+            if (r.warTags[0] != '#0') {     // War hasn't happened yet
                 for (var w of r.warTags) {
                     promises.push(
                         client.clanLeagueWars(w).then(res2 => {
                             if (res2.state != 'preparation') {
                                 if (res2.clan.tag == setup.clan_tag) {
-                                    data.push(getWarInfo(res2, true))
+                                    data.wars.push(getWarInfo(res2, true))
                                 } else if (res2.opponent.tag == setup.clan_tag) {
-                                    data.push(getWarInfo(res2, false))
+                                    data.wars.push(getWarInfo(res2, false))
                                 }
                             }
                         })
@@ -81,8 +86,8 @@ function getWarLeagueInfo() {
     }).catch((err) => { console.log(err) })
 }
 
+// Get detailed war info
 function getWarInfo(war, isPlayer) {
-
 
     if (war === undefined)
         throw 'invalid war'
@@ -124,15 +129,18 @@ function getWarInfo(war, isPlayer) {
             name: member.name,
             tag: member.tag,
             th: member.townhallLevel,
+            position: member.mapPosition,
             attacks: [],
             defenses: []
         }
 
         if (member.attacks !== undefined) {
             for (var a of member.attacks) {
-                a.th = findMember(opponent, a.defenderTag).townhallLevel
+                var defender = findMember(opponent, a.defenderTag)
+                a.th = defender.townhallLevel
+                a.position = defender.mapPosition
             }
-            //console.log(member.attacks)
+
             toAdd.attacks = member.attacks
             all_attacks = all_attacks.concat(member.attacks)
         }
@@ -147,6 +155,7 @@ function getWarInfo(war, isPlayer) {
             for (var a of member.attacks) {
                 var defender = findMember(data, a.defenderTag)
                 a.th = member.townhallLevel
+                a.position = member.mapPosition
                 defender.defenses.push(a)
             }
         }
@@ -171,6 +180,19 @@ function getWarInfo(war, isPlayer) {
         a.newStars = a.stars - prev_stars
     }
 
+    for (var m of data.members){    // Removing extraneous info
+        for (var a of m.attacks){
+            a.destruction = a.destructionPercentage
+            delete a.destructionPercentage
+            delete a.attackerTag
+        }
+        for (var d of m.defenses){
+            d.destruction = d.destructionPercentage
+            delete d.destructionPercentage
+            delete d.defenderTag
+        }
+    }
+
     // testing only
     // for (var i = 0; i < data.members.length; i++){
     //     console.log(data.members[i])
@@ -188,7 +210,7 @@ function getCurrentWarInfo() {
     })
 }
 
-function setupClan() {  // get JSON containing clan and players
+function setupClan() {  // get object containing clan and players
     return client.clanByTag(setup.clan_tag).then(res => {
         var data = {}
         data.clan_info = {
@@ -227,7 +249,7 @@ function setupClan() {  // get JSON containing clan and players
     })
 }
 
-function setupWarlog() {    // Get basic warlog for clan as json
+function setupWarlog() {    // Get basic warlog for clan as object
     return client.clanWarlogByTag(setup.clan_tag).then(res => {
 
         var data = {}
@@ -285,7 +307,11 @@ function firstTimeSetup() {
     createIfNotExists('warlog_basic.json', setupWarlog)
 }
 
+//console.log(new Date(Date.UTC("2019-06")))
+
 //firstTimeSetup()
 getWarLeagueInfo().then((res) => {
     console.log(res)
+    console.log(res.wars[0].members)
+    fs.writeFile("warleague06-19.json", JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
 }).catch((err) => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
