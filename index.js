@@ -1,15 +1,22 @@
 var clashApi = require('clash-of-clans-api')
 var fs = require('file-system')
+var Bottleneck = require("bottleneck")
+
 
 require('dotenv').config()
 
 const setup = require('./setup.json')
 
-var clanTag
+var clanData, warlogData
 
-var client = clashApi({
+const client = clashApi({
     token: process.env.COC_API_KEY
 })
+
+const limiter = new Bottleneck({
+    minTime: 200
+})
+
 
 
 function loadFile(name) {
@@ -53,9 +60,10 @@ function parseTime(t) {     // Dates from the CoC api come in a funny format
 }
 
 function getWarLeagueInfo() {
+    console.log('Getting war league info...')
     return client.clanLeague(setup.clan_tag).then(res => {
-        //console.log(res)
-        var promises = []
+        //var promises = []
+        var wars = []
         var data = {
             season: new Date(Date.UTC(
                 res.season.substr(0, 4),
@@ -64,26 +72,90 @@ function getWarLeagueInfo() {
         }
         for (var r of res.rounds) {
             if (r.warTags[0] != '#0') {     // War hasn't happened yet
-                for (var w of r.warTags) {
-                    promises.push(
-                        client.clanLeagueWars(w).then(res2 => {
-                            if (res2.state != 'preparation') {
-                                if (res2.clan.tag == setup.clan_tag) {
-                                    data.wars.push(getWarInfo(res2, true))
-                                } else if (res2.opponent.tag == setup.clan_tag) {
-                                    data.wars.push(getWarInfo(res2, false))
-                                }
-                            }
-                        })
-                    )
-                }
+                wars = wars.concat(r.warTags)
             }
         }
-        return Promise.all(promises).then((values) => {    // Join promises
+
+        return Promise.all(wars.map((w) => {
+
+            return limiter.schedule(() => { // Don't throttle the API
+                client.clanLeagueWars(w).then(res2 => {
+                    if (res2.state != 'preparation') {
+                        if (res2.clan.tag == setup.clan_tag) {
+                            var info = getWarInfo(res2, true)
+                            data.wars.push(info)
+                            processWarInfo(info, true)
+
+                        } else if (res2.opponent.tag == setup.clan_tag) {
+                            var info = getWarInfo(res2, false)
+                            data.wars.push(info)
+                            processWarInfo(info, true)
+                        }
+                    }
+                })
+            })
+        })).then(() => {    // Join promises
             return data
+        }).catch(err => {
+            console.log(err)
         })
 
     }).catch((err) => { console.log(err) })
+}
+
+function processWarInfo(data, isLeague) {
+    var promises = []
+    // Add to the player database
+    for (var m of data.members) {
+        if (clanData.members[m.tag] !== undefined) {
+            promises.push(getPlayerInfo(m.tag))
+        }
+    }
+
+    Promise.all(promises).then((values) => {
+        for (var v of values) {
+            clanData.members[v.tag] = v.info
+        }
+    }).catch((err) => { 
+        console.log(err) 
+    }).finally(() => {
+        for (var m of data.members) {
+            var member = clanData.members[m.tag]
+            for (var a of m.attacks){
+                member.attacks.push({
+                    th: m.th,
+                    position: m.position,
+                    stars: a.stars,
+                    newStars: a.newStars,
+                    opponentTag: a.opponentTag,
+                    opponentPosition: a.position,
+                    opponentTh: a.opponentTh,
+                    destruction: a.destruction,
+                    war: data.endTime,
+                    warType: isLeague ? "league" : "standard"
+                })
+            }
+            for (var d of m.defenses){
+                member.defenses.push({
+                    th: m.th,
+                    position: m.position,
+                    stars: d.stars,
+                    newStars: d.newStars,
+                    opponentTag: d.opponentTag,
+                    opponentPosition: d.position,
+                    opponentTh: a.opponentTh,
+                    destruction: d.destruction,
+                    war: data.endTime,
+                    warType: isLeague ? "league" : "standard"
+                })
+            }
+            //member.attacks = member.attacks.concat(m.attacks)
+            //member.defenses = member.defenses.concat(m.defenses)
+            //console.log(clanData.members[m.tag])
+        }
+    }).catch(err => { console.log(err) })
+
+    return data
 }
 
 // Get detailed war info
@@ -105,14 +177,13 @@ function getWarInfo(war, isPlayer) {
     }
 
     var data = {
+        endTime: parseTime(war.endTime),
         clanLevel: clan.clanLevel,
         attacks: clan.attacks,
         stars: clan.stars,
-        destruction: clan.destructionPercentage * 2, // Destruction percentage is given as half of "actual" value
+        destruction: clan.destructionPercentage, // This is messed up, find a fix
         members: []
     }
-
-    //console.log(war)
 
     function findMember(arr, memberTag) {
         for (var member of arr.members) {
@@ -137,7 +208,7 @@ function getWarInfo(war, isPlayer) {
         if (member.attacks !== undefined) {
             for (var a of member.attacks) {
                 var defender = findMember(opponent, a.defenderTag)
-                a.th = defender.townhallLevel
+                a.opponentTh = defender.townhallLevel
                 a.position = defender.mapPosition
             }
 
@@ -145,17 +216,16 @@ function getWarInfo(war, isPlayer) {
             all_attacks = all_attacks.concat(member.attacks)
         }
 
-        toAdd.attacksUsed = toAdd.attacks.length
         data.members.push(toAdd)
     }
 
     // Get detailed defense info
-    for (var member of opponent.members) {
-        if (member.attacks !== undefined) {
-            for (var a of member.attacks) {
+    for (var opp of opponent.members) {
+        if (opp.attacks !== undefined) {
+            for (var a of opp.attacks) {
                 var defender = findMember(data, a.defenderTag)
-                a.th = member.townhallLevel
-                a.position = member.mapPosition
+                a.opponentTh = opp.townhallLevel
+                a.position = opp.mapPosition
                 defender.defenses.push(a)
             }
         }
@@ -180,18 +250,26 @@ function getWarInfo(war, isPlayer) {
         a.newStars = a.stars - prev_stars
     }
 
-    for (var m of data.members){    // Removing extraneous info
-        for (var a of m.attacks){
+    for (var m of data.members) {    // Removing extraneous info & rename to fit consistent scheme
+        for (var a of m.attacks) {
             a.destruction = a.destructionPercentage
+            a.opponentTag = a.defenderTag
+            delete a.defenderTag
             delete a.destructionPercentage
             delete a.attackerTag
         }
-        for (var d of m.defenses){
+        for (var d of m.defenses) {
             d.destruction = d.destructionPercentage
+            d.opponentTag = d.attackerTag
+            delete d.attackerTag
             delete d.destructionPercentage
             delete d.defenderTag
         }
     }
+
+    data.members.sort((a, b) => {
+        return a.position - b.position
+    })
 
     // testing only
     // for (var i = 0; i < data.members.length; i++){
@@ -206,13 +284,32 @@ function getCurrentWarInfo() {
         client.clanCurrentWarByTag(setup.clan_tag).then(res => {
             return getWarInfo(res, true)
         })
-        //client.clan
+    })
+}
+
+function getPlayerInfo(tag) {
+    return client.playerByTag(tag).then(res => {
+        return {
+            tag: res.tag,
+            info: {
+                name: res.name,
+                th: res.townHallLevel,
+                rank: res.role == 'admin' ? 'elder' : res.role,
+                stars: res.warStars,
+                level: res.expLevel,
+                wars_participated: 0,
+                attacks: [],
+                defenses: []
+            }
+        }
     })
 }
 
 function setupClan() {  // get object containing clan and players
     return client.clanByTag(setup.clan_tag).then(res => {
-        var data = {}
+        var data = {
+            members: {}
+        }
         data.clan_info = {
             name: res.name,
             level: res.clanLevel,
@@ -228,22 +325,13 @@ function setupClan() {  // get object containing clan and players
         var promises = []
 
         for (var m of members) { // Get detailed player information for each player as promises
-            promises.push(client.playerByTag(m.tag).then(res2 => {
-                var toAdd = {
-                    tag: res2.tag,
-                    name: res2.name,
-                    th: res2.townHallLevel,
-                    rank: res2.role == 'admin' ? 'elder' : res2.role,
-                    stars: res2.warStars,
-                    level: res2.expLevel,
-                    wars_participated: 0
-                }
-                return toAdd
-            }))
+            promises.push(getPlayerInfo(m.tag))
         }
 
         return Promise.all(promises).then((values) => {    // Join promises
-            data.players = values
+            for (var v of values) {
+                data.members[v.tag] = v.info
+            }
             return data
         })
     })
@@ -293,25 +381,39 @@ function setupWarlog() {    // Get basic warlog for clan as object
 }
 
 function createIfNotExists(filename, setupFcn) {
-    loadFile('./' + filename).catch((err) => {  // Attempt to load file; execute code on failure
+    return loadFile('./' + filename).then((res) => {
+
+        return res
+
+    }).catch((err) => {  // Attempt to load file; execute code on failure
         console.log(`Creating file: ${filename}`)
-        setupFcn().then((res2) => {
-            console.log(res2)
+        return setupFcn().then((res2) => {
             fs.writeFile(filename, JSON.stringify(res2, null, 2), 'utf8')
+            console.log(`Created file: ${filename}`)
+            return res2
         })
     })
 }
 
 function firstTimeSetup() {
-    createIfNotExists('clan.json', setupClan)
-    createIfNotExists('warlog_basic.json', setupWarlog)
+    return Promise.all(
+        [createIfNotExists('clan.json', setupClan),
+        createIfNotExists('warlog_basic.json', setupWarlog)]).then((values => {
+            //console.log(values)
+            clanData = values[0]
+            warlogData = values[1]
+        }))
 }
 
-//console.log(new Date(Date.UTC("2019-06")))
+firstTimeSetup().then((res1) => {
+    getWarLeagueInfo().then((res) => {
 
-//firstTimeSetup()
-getWarLeagueInfo().then((res) => {
-    console.log(res)
-    console.log(res.wars[0].members)
-    fs.writeFile("warleague06-19.json", JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
-}).catch((err) => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
+        var filename = 'warleague06-19.json'
+        console.log('Writing war league info to disk...')
+
+        fs.writeFile(filename, JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
+        console.log(`Finished writing league info at ${filename}`)
+        fs.writeFile('clan2.json', JSON.stringify(clanData, null, 2), 'utf8')
+
+    }).catch((err) => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
+})
