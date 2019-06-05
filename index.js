@@ -112,12 +112,12 @@ function logWarActivity(data) {
         clanData.members[a.tag].attacks.push(a.info)
     }
     for (var d of data.defenses){
-        clanData.members[a.tag].defenses.push(d.info)
+        clanData.members[d.tag].defenses.push(d.info)
     }
 }
 
 async function processWarInfo(war, isLeague) {
-    console.log("called")
+    //console.log("called")
     //return;
     //console.log(war)
     var data = {
@@ -166,7 +166,6 @@ async function processWarInfo(war, isLeague) {
                         th: m.th,
                         position: m.position,
                         stars: d.stars,
-                        newStars: d.newStars,
                         opponentTag: d.opponentTag,
                         opponentPosition: d.position,
                         opponentTh: a.opponentTh,
