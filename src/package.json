@@ -8,7 +8,7 @@
     "dev": "nodemon index.js"
   },
   "author": "n-yuen",
-  "license": "ISC",
+  "license": "GPL-3.0",
   "dependencies": {
     "bottleneck": "^2.19.0",
     "clash-of-clans-api": "^0.6.1",

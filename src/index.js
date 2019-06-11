@@ -2,10 +2,14 @@ var clashApi = require('clash-of-clans-api')
 var fs = require('file-system')
 var Bottleneck = require("bottleneck")
 
+//  "clan_tag": "#J0RYJQJU"
+
 const setup = require('./setup.json')
 require('dotenv').config()
 
 var clanData, warlogData
+var clanFilename = 'clan.json'
+var PATH = '../data/'
 
 const client = clashApi({
     token: process.env.COC_API_KEY
@@ -81,6 +85,8 @@ function getWarLeagueInfo() {
                 //console.log(res2)
                 if (res2.state != 'preparation') {
                     var info
+
+                    // Find out which side we're on
                     if (res2.clan.tag == setup.clan_tag) {
                         info = getWarInfo(res2, true)
 
@@ -92,7 +98,8 @@ function getWarLeagueInfo() {
                     data.wars.push(info)
                     return processWarInfo(info, true)
                 }
-            })
+            }).catch(err => { console.log(err) })
+
         })).then((values) => {    // Join promises
             for (var v of values){
                 if (v !== undefined){
@@ -100,13 +107,12 @@ function getWarLeagueInfo() {
                 }
             }
             return data
-        }).catch(err => {
-            console.log(err)
-        })
+        }).catch(err => { console.log(err) })
 
     }).catch(err => { console.log(err) })
 }
 
+// Insert the relevant data into clanData
 function logWarActivity(data) {
     for (var a of data.attacks){
         clanData.members[a.tag].attacks.push(a.info)
@@ -116,10 +122,10 @@ function logWarActivity(data) {
     }
 }
 
+
+// Taking input from a war log object, parse it into an object where attacks and defenses
+// can be easily processed.
 async function processWarInfo(war, isLeague) {
-    //console.log("called")
-    //return;
-    //console.log(war)
     var data = {
         attacks: [],
         defenses: []
@@ -175,22 +181,15 @@ async function processWarInfo(war, isLeague) {
                     }
                 })
             }
-
-            //member.attacks = member.attacks.concat(m.attacks)
-            //member.defenses = member.defenses.concat(m.defenses)
-            //console.log(clanData.members[m.tag])
         }
         return data
-
-        //console.log(clanData)
-        //return clanData
     }
     catch (err) {
         console.log(err)
     }
 }
 
-// Get detailed war info
+// Get detailed war info, and return as an object that's ready to be written to disk.
 function getWarInfo(war, isPlayer) {
 
     if (war === undefined)
@@ -199,6 +198,7 @@ function getWarInfo(war, isPlayer) {
     if (war.state == 'preparation')
         throw 'prep day'
 
+    // Get the correct side that we're on
     var clan, opponent
     if (isPlayer) {
         clan = war.clan
@@ -217,6 +217,7 @@ function getWarInfo(war, isPlayer) {
         members: []
     }
 
+    // Find member by tag
     function findMember(arr, memberTag) {
         for (var member of arr.members) {
             if (member.tag == memberTag)
@@ -237,6 +238,7 @@ function getWarInfo(war, isPlayer) {
             defenses: []
         }
 
+        // Get detailed attack info
         if (member.attacks !== undefined) {
             for (var a of member.attacks) {
                 var defender = findMember(opponent, a.defenderTag)
@@ -420,7 +422,7 @@ function createIfNotExists(filename, setupFcn) {
     }).catch(() => {  // Attempt to load file; execute code on failure
         console.log(`Creating file: ${filename}`)
         return setupFcn().then(res => {
-            fs.writeFile(filename, JSON.stringify(res, null, 2), 'utf8')
+            fs.writeFile(PATH + filename, JSON.stringify(res, null, 2), 'utf8')
             console.log(`Created file: ${filename}`)
             return res
         })
@@ -429,7 +431,7 @@ function createIfNotExists(filename, setupFcn) {
 
 async function firstTimeSetup() {
     const values = await Promise.all([
-        createIfNotExists('clan2.json', setupClan),
+        createIfNotExists(clanFilename, setupClan),
         createIfNotExists('warlog_basic.json', setupWarlog)
     ])
     //console.log(values)
@@ -443,9 +445,9 @@ firstTimeSetup().then(() => {
         var filename = 'warleague06-19.json'
         console.log('Writing war league info to disk...')
 
-        fs.writeFile(filename, JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
+        fs.writeFile(PATH + filename, JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
         console.log(`Finished writing league info at ${filename}`)
-        fs.writeFile('clan2.json', JSON.stringify(clanData, null, 2), 'utf8')
+        fs.writeFile(PATH + clanFilename, JSON.stringify(clanData, null, 2), 'utf8')
 
     }).catch(err => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
 })
