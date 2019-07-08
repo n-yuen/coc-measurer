@@ -1,6 +1,7 @@
-var clashApi = require('clash-of-clans-api')
-var fs = require('file-system')
-var Bottleneck = require("bottleneck")
+const clashApi = require('clash-of-clans-api')
+const fs = require('file-system')
+const Bottleneck = require('bottleneck')
+const mysql = require('mysql')
 
 //  "clan_tag": "#J0RYJQJU"
 
@@ -8,16 +9,35 @@ const setup = require('./setup.json')
 require('dotenv').config()
 
 var clanData, warlogData
-var clanFilename = 'clan.json'
-var PATH = '../data/'
 
-const client = clashApi({
+const clanFilename = 'clan.json'
+const PATH = 'data/'
+
+const coc = clashApi({
     token: process.env.COC_API_KEY
 })
 
 const limiter = new Bottleneck({
     minTime: 200
 })
+
+const sqlcon = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: 'password'
+})
+
+sqlcon.connect(err => {
+    if (err) throw err
+    console.log('SQL connection established')
+})
+
+var sqlpool  = mysql.createPool({
+    host     : 'localhost',
+    user     : 'root',
+    password : process.env.SQL_PASSWORD,
+    database : 'coc_measurer'
+});
 
 function loadFile(name) {
     return new Promise((resolve, reject) => {
@@ -32,7 +52,7 @@ function loadFile(name) {
     })
 }
 
-// function getEndTime() = client.clanCurrentWarByTag(setup.clan_tag).then(res => {
+// function getEndTime() = coc.clanCurrentWarByTag(setup.clan_tag).then(res => {
 //     if (res === undefined)
 //         return undefined
 //     return new Date(parseTime(res.endTime).valueOf() - 60000) // One minute before the end of the war
@@ -60,8 +80,8 @@ function parseTime(t) {     // Dates from the CoC api come in a funny format
 }
 
 function getWarLeagueInfo() {
-    console.log('Getting war league info...')
-    return client.clanLeague(setup.clan_tag).then(res => {
+    //console.log('Getting war league info...')
+    return coc.clanLeague(setup.clan_tag).then(res => {
         //var promises = []
         var wars = []
         var data = {
@@ -79,7 +99,7 @@ function getWarLeagueInfo() {
         return Promise.all(wars.map(w => {
 
             return limiter.wrap(() => {     // Rate limit to not get throttled
-                return client.clanLeagueWars(w)
+                return coc.clanLeagueWars(w)
 
             })().then(res2 => {
                 //console.log(res2)
@@ -101,23 +121,23 @@ function getWarLeagueInfo() {
             }).catch(err => { console.log(err) })
 
         })).then((values) => {    // Join promises
-            for (var v of values){
-                if (v !== undefined){
+            for (var v of values) {
+                if (v !== undefined) {
                     logWarActivity(v)
                 }
             }
             return data
         }).catch(err => { console.log(err) })
 
-    }).catch(err => { console.log(err) })
+    })//.catch(err => { console.log(err) })
 }
 
 // Insert the relevant data into clanData
 function logWarActivity(data) {
-    for (var a of data.attacks){
+    for (var a of data.attacks) {
         clanData.members[a.tag].attacks.push(a.info)
     }
-    for (var d of data.defenses){
+    for (var d of data.defenses) {
         clanData.members[d.tag].defenses.push(d.info)
     }
 }
@@ -161,7 +181,7 @@ async function processWarInfo(war, isLeague) {
                         opponentTh: a.opponentTh,
                         destruction: a.destruction,
                         war: war.endTime,
-                        warType: isLeague ? "league" : "standard"
+                        warType: isLeague ? 'league' : 'standard'
                     }
                 })
             }
@@ -177,7 +197,7 @@ async function processWarInfo(war, isLeague) {
                         opponentTh: a.opponentTh,
                         destruction: d.destruction,
                         war: war.endTime,
-                        warType: isLeague ? "league" : "standard"
+                        warType: isLeague ? 'league' : 'standard'
                     }
                 })
             }
@@ -193,10 +213,10 @@ async function processWarInfo(war, isLeague) {
 function getWarInfo(war, isPlayer) {
 
     if (war === undefined)
-        throw 'invalid war'
+        throw 'Error getting war info: war does not exist'
 
     if (war.state == 'preparation')
-        throw 'prep day'
+        throw 'Error getting war info: war is on prep day'
 
     // Get the correct side that we're on
     var clan, opponent
@@ -314,15 +334,13 @@ function getWarInfo(war, isPlayer) {
 }
 
 function getCurrentWarInfo() {
-    return new Promise((resolve, reject) => {
-        client.clanCurrentWarByTag(setup.clan_tag).then(res => {
-            return getWarInfo(res, true)
-        })
-    })
+    return coc.clanCurrentWarByTag(setup.clan_tag).then(res => {
+        return getWarInfo(res, true)
+    }).catch(err => console.log(err))
 }
 
 function getPlayerInfo(tag) {
-    return client.playerByTag(tag).then(res => {
+    return coc.playerByTag(tag).then(res => {
         return {
             tag: res.tag,
             info: {
@@ -340,7 +358,7 @@ function getPlayerInfo(tag) {
 }
 
 function setupClan() {  // get object containing clan and players
-    return client.clanByTag(setup.clan_tag).then(res => {
+    return coc.clanByTag(setup.clan_tag).then(res => {
         var data = {
             members: {}
         }
@@ -372,7 +390,7 @@ function setupClan() {  // get object containing clan and players
 }
 
 function setupWarlog() {    // Get basic warlog for clan as object
-    return client.clanWarlogByTag(setup.clan_tag).then(res => {
+    return coc.clanWarlogByTag(setup.clan_tag).then(res => {
 
         var data = {}
 
@@ -385,7 +403,7 @@ function setupWarlog() {    // Get basic warlog for clan as object
             var opponent = i.opponent
 
             toAdd = {
-                result: i.result == null ? "-" : i.result,
+                result: i.result == null ? '-' : i.result,
                 endtime: parseTime(i.endTime),
                 clan: {
                     level: clan.clanLevel,
@@ -414,9 +432,138 @@ function setupWarlog() {    // Get basic warlog for clan as object
     })
 }
 
-function createIfNotExists(filename, setupFcn) {
-    return loadFile('./' + filename).then(res => {
+function sqlquery(query) {
+    return new Promise((resolve, reject) => {
+        sqlcon.query(query, (err, res) => {
+            if (err)
+                return reject(err)
 
+            resolve(res)
+        })
+    })
+}
+
+function firstTimeSetup(filename, setupFcn) {
+
+    return new Promise((resolve, reject) => {
+
+        sqlquery(`SELECT SCHEMA_NAME
+            FROM INFORMATION_SCHEMA.SCHEMATA
+        WHERE SCHEMA_NAME = 'coc_measurer'`).then((res) => {
+            if (res == [])
+                reject()
+
+            sqlcon.query('CREATE DATABASE IF NOT EXISTS coc_measurer')
+            sqlcon.query('USE coc_measurer')
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS clans (
+                    \`id\` MEDIUMINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                    \`tag\` BIGINT UNSIGNED NOT NULL,
+                    \`name\` VARCHAR(60) NOT NULL
+                )`)
+
+            sqlcon.query(`CREATE INDEX IX_tag USING HASH ON clans (tag)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS players (
+                    \`id\` MEDIUMINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                    \`tag\` BIGINT UNSIGNED NOT NULL,
+                    \`name\` VARCHAR(60) NOT NULL,
+                    \`clan\` BIGINT UNSIGNED NOT NULL
+                )`)
+
+            //sqlcon.query(`CREATE INDEX IX_tag USING HASH ON players (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON players (clan)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS wars (
+                    \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                    \`size\` TINYINT UNSIGNED NOT NULL,
+                    \`stars\` SMALLINT UNSIGNED NOT NULL,
+                    \`vsstars\` SMALLINT UNSIGNED NOT NULL,
+                    \`destruction\` FLOAT UNSIGNED NOT NULL,
+                    \`vsdestruction\`  FLOAT UNSIGNED NOT NULL,
+                    \`tag\` BIGINT UNSIGNED NOT NULL,
+                    \`vstag\` BIGINT UNSIGNED NOT NULL,
+                    \`endtime\` DATE NOT NULL,
+                    \`attacks\` TINYINT UNSIGNED,
+                    \`vsattacks\` TINYINT UNSIGNED,
+                    \`leagueid\` INT UNSIGNED
+                )`)
+
+            sqlcon.query(`CREATE INDEX IX_clan ON wars (tag)`)
+            sqlcon.query(`CREATE INDEX IX_league ON wars (leagueid)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS warleagues (
+            \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                \`tag\` BIGINT UNSIGNED NOT NULL,
+                \`size\` TINYINT NOT NULL,
+                \`stars\` SMALLINT UNSIGNED NOT NULL,
+                \`destruction\` FLOAT UNSIGNED NOT NULL,
+                \`season\` DATE NOT NULL
+            )`)
+
+            sqlcon.query(`CREATE INDEX IX_clan ON warleagues (tag)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS attacks (
+                \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                \`tag\` BIGINT UNSIGNED NOT NULL,
+                \`opptag\` BIGINT UNSIGNED NOT NULL,
+                \`position\` TINYINT UNSIGNED NOT NULL,
+                \`vsposition\` TINYINT UNSIGNED NOT NULL,
+                \`destruction\` FLOAT UNSIGNED NOT NULL,
+                \`th\` BIT(6) NOT NULL,
+                \`vsth\` BIT(6) NOT NULL,
+                \`stars\` BIT(2) NOT NULL,
+                \`newstars\` BIT(2) NOT NULL,
+                \`order\` SMALLINT UNSIGNED NOT NULL,
+                \`clantag\` BIGINT UNSIGNED NOT NULL
+            )`)
+
+            sqlcon.query(`CREATE INDEX IX_player USING HASH ON attacks (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON attacks (clantag)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS defenses (
+                \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
+                \`tag\` BIGINT UNSIGNED NOT NULL,
+                \`opptag\` BIGINT UNSIGNED NOT NULL,
+                \`position\` TINYINT UNSIGNED NOT NULL,
+                \`vsposition\` TINYINT UNSIGNED NOT NULL,
+                \`destruction\` FLOAT UNSIGNED NOT NULL,
+                \`th\` BIT(6) NOT NULL,
+                \`vsth\` BIT(6) NOT NULL,
+                \`stars\` BIT(2) NOT NULL,
+                \`newstars\` BIT(2) NOT NULL,
+                \`order\` SMALLINT UNSIGNED NOT NULL,
+                \`clantag\` BIGINT UNSIGNED NOT NULL
+            )`)
+
+            sqlcon.query(`CREATE INDEX IX_player ON defenses (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON defenses (clantag)`)
+
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS lineups (
+                \`warid\` BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+                \`tag\` BIGINT UNSIGNED NOT NULL,
+                \`attacksUsed\` TINYINT UNSIGNED NOT NULL,
+                \`timesDefended\` TINYINT UNSIGNED NOT NULL
+            )`)
+
+            sqlcon.query(`CREATE INDEX IX_war ON lineups (warid)`)
+            sqlcon.query(`CREATE INDEX IX_player on lineups (tag)`)
+
+            console.log('All tables set up')
+
+            resolve()
+        })
+
+    })
+
+
+    //sqlcon.query(`CREATE TABLE IF NOT EXISTS ${setup.clan_tag.substring(1)}_warlog`, (err, res) => {
+
+    //})
+
+    /*
+    return loadFile(PATH + filename).then(res => {
+        //console.log('here')
         return res
 
     }).catch(() => {  // Attempt to load file; execute code on failure
@@ -426,28 +573,39 @@ function createIfNotExists(filename, setupFcn) {
             console.log(`Created file: ${filename}`)
             return res
         })
-    })
+    })*/
 }
 
-async function firstTimeSetup() {
-    const values = await Promise.all([
-        createIfNotExists(clanFilename, setupClan),
-        createIfNotExists('warlog_basic.json', setupWarlog)
-    ])
-    //console.log(values)
-    clanData = values[0]
-    warlogData = values[1]
-}
+// async function firstTimeSetup() {
+//     const values = await Promise.all([
+//         createIfNotExists(clanFilename, setupClan),
+//         createIfNotExists('warlog_basic.json', setupWarlog)
+//     ])
+//     //console.log(values)
+//     clanData = values[0]
+//     warlogData = values[1]
+// }
 
 firstTimeSetup().then(() => {
-    getWarLeagueInfo().then((res) => {
+    // getWarLeagueInfo().then((res) => {
 
-        var filename = 'warleague06-19.json'
-        console.log('Writing war league info to disk...')
+    //     // var filename = 'warleague06-19.json' // temporary
+    //     // console.log('Writing war league info to disk...')
 
-        fs.writeFile(PATH + filename, JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
-        console.log(`Finished writing league info at ${filename}`)
-        fs.writeFile(PATH + clanFilename, JSON.stringify(clanData, null, 2), 'utf8')
+    //     // fs.writeFile(PATH + filename, JSON.stringify(res, null, 2), 'utf8')   // Testing, will change later
+    //     // console.log(`Finished writing league info at ${filename}`)
+    //     // fs.writeFile(PATH + clanFilename, JSON.stringify(clanData, null, 2), 'utf8')
 
-    }).catch(err => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
+    // }).catch(() => {
+
+    //     getCurrentWarInfo().then((res) => {
+    //         //console.log(res)
+    //     }).catch(err => { console.log(err) }) //.catch((err) => { console.log("Please wait until war is on Battle Day") })
+    // }).catch(err => {
+    //     console.log(err)
+    // })
+}).catch(err => { console.log(process.env.COC_API_KEY) })
+.then(() =>{
+    sqlcon.end()
 })
+
