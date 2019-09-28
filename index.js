@@ -32,6 +32,13 @@ sqlcon.connect(err => {
     console.log('SQL connection established')
 })
 
+var sqlpool  = mysql.createPool({
+    host     : 'localhost',
+    user     : 'root',
+    password : process.env.SQL_PASSWORD,
+    database : 'coc_measurer'
+});
+
 function loadFile(name) {
     return new Promise((resolve, reject) => {
         fs.readFile(name, 'utf8', (err, data) => {
@@ -493,37 +500,36 @@ function sqlquery(query, sql) {
 
 function firstTimeSetup(filename, setupFcn) {
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
 
         sqlquery(`SELECT SCHEMA_NAME
             FROM INFORMATION_SCHEMA.SCHEMATA
         WHERE SCHEMA_NAME = 'coc_measurer'`).then((res) => {
-            if (res != []) {
-                resolve('Database already created, moving on...')
-            } else {
+            if (res == [])
+                reject()
 
-                sqlcon.query('CREATE DATABASE IF NOT EXISTS coc_measurer')
-                sqlcon.query('USE coc_measurer')
+            sqlcon.query('CREATE DATABASE IF NOT EXISTS coc_measurer')
+            sqlcon.query('USE coc_measurer')
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS clans (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS clans (
                     \`id\` MEDIUMINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                     \`tag\` BIGINT UNSIGNED NOT NULL,
                     \`name\` VARCHAR(60) NOT NULL
                 )`)
 
-                sqlcon.query(`CREATE INDEX IX_tag USING HASH ON clans (tag)`)
+            sqlcon.query(`CREATE INDEX IX_tag USING HASH ON clans (tag)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS players (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS players (
                     \`id\` MEDIUMINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                     \`tag\` BIGINT UNSIGNED NOT NULL,
                     \`name\` VARCHAR(60) NOT NULL,
                     \`clan\` BIGINT UNSIGNED NOT NULL
                 )`)
 
-                //sqlcon.query(`CREATE INDEX IX_tag USING HASH ON players (tag)`)
-                sqlcon.query(`CREATE INDEX IX_clan ON players (clan)`)
+            //sqlcon.query(`CREATE INDEX IX_tag USING HASH ON players (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON players (clan)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS wars (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS wars (
                     \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                     \`size\` TINYINT UNSIGNED NOT NULL,
                     \`stars\` SMALLINT UNSIGNED NOT NULL,
@@ -538,10 +544,10 @@ function firstTimeSetup(filename, setupFcn) {
                     \`leagueid\` INT UNSIGNED
                 )`)
 
-                sqlcon.query(`CREATE INDEX IX_clan ON wars (tag)`)
-                sqlcon.query(`CREATE INDEX IX_league ON wars (leagueid)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON wars (tag)`)
+            sqlcon.query(`CREATE INDEX IX_league ON wars (leagueid)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS warleagues (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS warleagues (
             \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 \`tag\` BIGINT UNSIGNED NOT NULL,
                 \`size\` TINYINT NOT NULL,
@@ -550,9 +556,9 @@ function firstTimeSetup(filename, setupFcn) {
                 \`season\` DATE NOT NULL
             )`)
 
-                sqlcon.query(`CREATE INDEX IX_clan ON warleagues (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON warleagues (tag)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS attacks (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS attacks (
                 \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 \`tag\` BIGINT UNSIGNED NOT NULL,
                 \`opptag\` BIGINT UNSIGNED NOT NULL,
@@ -567,10 +573,10 @@ function firstTimeSetup(filename, setupFcn) {
                 \`clantag\` BIGINT UNSIGNED NOT NULL
             )`)
 
-                sqlcon.query(`CREATE INDEX IX_player USING HASH ON attacks (tag)`)
-                sqlcon.query(`CREATE INDEX IX_clan ON attacks (clantag)`)
+            sqlcon.query(`CREATE INDEX IX_player USING HASH ON attacks (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON attacks (clantag)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS defenses (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS defenses (
                 \`id\` INT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 \`tag\` BIGINT UNSIGNED NOT NULL,
                 \`opptag\` BIGINT UNSIGNED NOT NULL,
@@ -585,22 +591,22 @@ function firstTimeSetup(filename, setupFcn) {
                 \`clantag\` BIGINT UNSIGNED NOT NULL
             )`)
 
-                sqlcon.query(`CREATE INDEX IX_player ON defenses (tag)`)
-                sqlcon.query(`CREATE INDEX IX_clan ON defenses (clantag)`)
+            sqlcon.query(`CREATE INDEX IX_player ON defenses (tag)`)
+            sqlcon.query(`CREATE INDEX IX_clan ON defenses (clantag)`)
 
-                sqlcon.query(`CREATE TABLE IF NOT EXISTS lineups (
+            sqlcon.query(`CREATE TABLE IF NOT EXISTS lineups (
                 \`warid\` BIGINT UNSIGNED NOT NULL PRIMARY KEY,
                 \`tag\` BIGINT UNSIGNED NOT NULL,
                 \`attacksUsed\` TINYINT UNSIGNED NOT NULL,
                 \`timesDefended\` TINYINT UNSIGNED NOT NULL
             )`)
 
-                sqlcon.query(`CREATE INDEX IX_player on lineups (tag)`)
+            sqlcon.query(`CREATE INDEX IX_war ON lineups (warid)`)
+            sqlcon.query(`CREATE INDEX IX_player on lineups (tag)`)
 
-                console.log('All tables set up')
+            console.log('All tables set up')
 
-                resolve('Database created')
-            }
+            resolve()
         })
 
     })
@@ -635,8 +641,7 @@ function firstTimeSetup(filename, setupFcn) {
 //     warlogData = values[1]
 // }
 
-firstTimeSetup().then((res) => {
-    console.log(res)
+firstTimeSetup().then(() => {
     // getWarLeagueInfo().then((res) => {
 
     //     // var filename = 'warleague06-19.json' // temporary
@@ -654,8 +659,8 @@ firstTimeSetup().then((res) => {
     // }).catch(err => {
     //     console.log(err)
     // })
-}).catch(err => { console.log(err) })
-    .then(() => {
-        sqlcon.end()
-    })
+}).catch(err => { console.log(process.env.COC_API_KEY) })
+.then(() =>{
+    sqlcon.end()
+})
 
