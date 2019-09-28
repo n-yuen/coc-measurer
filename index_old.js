@@ -72,29 +72,7 @@ function parseTime(t) {     // Dates from the CoC api come in a funny format
     ))
 }
 
-function toSQLDate(t) {     // Dates from the CoC api come in a funny format
-    return t.substr(0, 4) + "-" +
-        (t.substr(4, 2) - 1) + "-" +
-        t.substr(6, 2) + " " +
-        t.substr(9, 2) + ":" +
-        t.substr(11, 2) + ":" +
-        t.substr(13, 2)
-}
-
 function getWarLeagueInfo() {
-    return coc.clanLeauge(setup.clan_tag).then(res => {
-        var warsToDo = []
-        var date = toSQLDate(coc.season)
-        for (var r of res.rounds) {
-            if (r.warTags[0] != '#0') {     // War hasn't happened yet
-                warsToDo = warsToDo.concat(r.warTags)
-            }
-        }
-
-    })
-}
-
-function getWarLeagueInfoOld() {
     //console.log('Getting war league info...')
     return coc.clanLeague(setup.clan_tag).then(res => {
         //var promises = []
@@ -224,26 +202,6 @@ async function processWarInfo(war, isLeague) {
     }
 }
 
-function getWarInfo(war, isPlayer) {
-    if (war === undefined)
-        throw 'Error getting war info: war does not exist'
-
-    if (war.state == 'preparation')
-        throw 'Error getting war info: war is on prep day'
-
-    var clan, opponent
-    if (isPlayer) {
-        clan = war.clan
-        opponent = war.opponent
-    } else {
-        clan = war.opponent
-        opponent = war.clan
-    }
-
-    sqlqueryparams(`INSERT INTO wars (size, stars, vsstars, destruction, vsdestruction, tag, vstag, endtime, attacks, vsattacks)
-    VALUES ()`)
-}
-
 // Get detailed war info, and return as an object that's ready to be written to disk.
 function getWarInfo(war, isPlayer) {
 
@@ -282,7 +240,7 @@ function getWarInfo(war, isPlayer) {
 
     var all_attacks = []
 
-    // O(n^2), but max 50 elements so performance loss is trivial
+    // Not optimized: O(n^2), but max 50 elements so performance loss is trivial
     for (var member of clan.members) {
         var toAdd = {
             name: member.name,
@@ -467,22 +425,9 @@ function setupWarlog() {    // Get basic warlog for clan as object
     })
 }
 
-function sqlqueryparams(query, sql) {
+function sqlquery(query) {
     return new Promise((resolve, reject) => {
-        sqlcon.query(query, sql, (err, res) => {
-            if (err)
-                return reject(err)
-
-            resolve(res)
-        })
-    })
-}
-
-function sqlquery(query, sql) {
-    return new Promise((resolve, reject) => {
-
-
-        sqlcon.query(query, sql, (err, res) => {
+        sqlcon.query(query, (err, res) => {
             if (err)
                 return reject(err)
 
