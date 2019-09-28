@@ -2,6 +2,8 @@ coc-measurer
 
 pre-alpha
 
+FOR A WORKING VERSION, CHECKOUT THE BRANCH TITLED 'old_json'. THIS CURRENT VERSION IS MISSING LOTS OF CODE
+
 coming soon:
 - sql
 - discord bot
